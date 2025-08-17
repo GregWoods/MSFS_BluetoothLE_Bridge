@@ -1,3 +1,6 @@
 [submodule "libs/simpleble"]
 	path = libs/simpleble
 	url = https://github.com/OpenBluetoothToolbox/SimpleBLE.git
+[submodule "libs/FSUIPC_WAPI"]
+	path = libs/FSUIPC_WAPI
+	url = https://github.com/jldowson/FSUIPC_WAPI.git
