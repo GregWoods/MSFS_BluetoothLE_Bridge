@@ -1,0 +1,51 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_CXX_STANDARD": "17",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "SIMPLEBLE_BUILD_EXAMPLES": "OFF",
+                "SIMPLEBLE_BUILD_TESTS": "OFF"
+            }
+        },
+        {
+            "name": "debug",
+            "displayName": "Debug",
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/install/debug"
+            }
+        },
+        {
+            "name": "release",
+            "displayName": "Release",
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/install/release"
+            }
+        }
+    ],
+
+    "buildPresets": [
+        { "name": "debug",   "configurePreset": "debug" },
+        { "name": "release", "configurePreset": "release" },
+        { "name": "release-install", "configurePreset": "release", "targets": [ "install" ] }
+    ],
+
+    "testPresets": [
+        {
+            "name": "debug-tests",
+            "configurePreset": "debug",
+            "output": { "outputOnFailure": true }
+        }
+    ]
+}
