@@ -14,13 +14,12 @@
 
 constexpr const char* SIMIONIC_G1000_IDENTIFIER = "SHB1000";
 constexpr const char* BLE_CHARACTERISTIC_UUID = "f62a9f56-f29e-48a8-a317-47ee37a58999";
-constexpr int        BLUETOOTH_SCANNING_TIMEOUT_SEC = 20;
+constexpr int BLUETOOTH_SCANNING_TIMEOUT_SEC = 20;
 
 static_assert(sizeof(void*) == 8, "Must build 64-bit (x64).");
 
-// ---- Added global state & guard ----
 static WASMIF* wasmPtr = nullptr;
-static std::array<char, MAX_CALC_CODE_SIZE> ccode{};  // holds calculator code
+static std::array<char, MAX_CALC_CODE_SIZE> ccode{};
 
 class WASMIFGuard {
 public:
@@ -30,235 +29,212 @@ public:
     WASMIFGuard& operator=(const WASMIFGuard&) = delete;
 private:
     WASMIF* p_;
-};
-// ------------------------------------
+};      
 
 static std::optional<SimpleBLE::Adapter> get_first_adapter() {
-    std::vector<SimpleBLE::Adapter> adapters;
     try {
-        adapters = SimpleBLE::Adapter::get_adapters();
-    }
-    catch (const std::exception& e) {
+        auto adapters = SimpleBLE::Adapter::get_adapters();
+        if (adapters.empty()) return std::nullopt;
+        return adapters.front();
+    } catch (const std::exception& e) {
         std::cerr << "Adapter enumeration failed: " << e.what() << std::endl;
-        return std::nullopt;
-    }
-    if (adapters.empty()) return std::nullopt;
-    return adapters.front();
-}
-
-static std::optional<size_t> get_user_input_int(const std::string& prompt, size_t max_index) {
-    std::cout << prompt << " (0-" << max_index << "): ";
-    std::string line;
-    if (!std::getline(std::cin, line)) return std::nullopt;
-    if (line.empty()) return std::nullopt;
-    try {
-        size_t pos = 0;
-        unsigned long v = std::stoul(line, &pos, 10);
-        if (pos != line.size() || v > max_index) return std::nullopt;
-        return static_cast<size_t>(v);
-    }
-    catch (...) {
         return std::nullopt;
     }
 }
 
 static std::string to_lower(std::string v) {
     std::transform(v.begin(), v.end(), v.begin(),
-        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                   [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
     return v;
 }
 
-static void print_hex_bytes(const SimpleBLE::ByteArray& data) {
-    std::cout << "Indication (" << data.size() << " bytes): ";
+static void print_hex_bytes(const SimpleBLE::ByteArray& data, const std::string& devTag) {
+    std::cout << "[" << devTag << "] (" << data.size() << " bytes): ";
     for (unsigned char c : data) {
         std::cout << std::hex << std::uppercase << std::setw(2) << std::setfill('0')
-            << static_cast<int>(c) << " ";
+                  << static_cast<int>(c) << " ";
     }
     std::cout << std::dec << std::nouppercase << std::endl;
 }
 
-static void on_receive_bytes(const SimpleBLE::ByteArray& bytes) {
-    // Send the preloaded calculator code every time data arrives (if initialized)
-    if (wasmPtr) {
-        wasmPtr->executeCalclatorCode(ccode.data());
+struct ConnectedDevice {
+    SimpleBLE::Peripheral peripheral;
+    SimpleBLE::BluetoothUUID service_uuid;
+    SimpleBLE::BluetoothUUID characteristic_uuid;
+    bool used_indicate = false;
+};
+
+static bool find_characteristic(SimpleBLE::Peripheral& p,
+                                const std::string& desired_lower,
+                                SimpleBLE::BluetoothUUID& out_service,
+                                SimpleBLE::BluetoothUUID& out_char) {
+    try {
+        for (auto& service : p.services()) {
+            for (auto& chr : service.characteristics()) {
+                if (to_lower(chr.uuid()) == desired_lower) {
+                    out_service = service.uuid();
+                    out_char    = chr.uuid();
+                    return true;
+                }
+            }
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Service discovery failed on " << p.identifier()
+                  << ": " << e.what() << std::endl;
     }
-    print_hex_bytes(bytes);
+    return false;
 }
 
 int main() {
-    // Setup SimConnect / WASM interface
+    // SimConnect / WASM init
     wasmPtr = WASMIF::GetInstance();
     WASMIFGuard guard(wasmPtr);
     wasmPtr->setSimConfigConnection(SIMCONNECT_OPEN_CONFIGINDEX_LOCAL);
     wasmPtr->start();
 
-    // Prepare calculator code
+    // Prepare calculator code (replayed on each incoming BLE packet)
     const char* calcCode = "(>H:AS1000_PFD_SOFTKEYS_2)";
     strncpy_s(ccode.data(), ccode.size(), calcCode, _TRUNCATE);
 
-    const std::string desired_characteristic_uuid = to_lower(BLE_CHARACTERISTIC_UUID);
+    const std::string desired_char_lower = to_lower(BLE_CHARACTERISTIC_UUID);
 
-    auto adapter_optional = get_first_adapter();
-    if (!adapter_optional) {
+    auto adapter_opt = get_first_adapter();
+    if (!adapter_opt) {
         std::cerr << "No Bluetooth adapter found." << std::endl;
         return EXIT_FAILURE;
     }
-    auto adapter = *adapter_optional;
+    auto adapter = *adapter_opt;
 
-    std::vector<SimpleBLE::Peripheral> scanned_peripherals;
-    scanned_peripherals.reserve(32);
+    std::vector<SimpleBLE::Peripheral> scanned;
+    scanned.reserve(32);
     std::unordered_set<std::string> seen_addresses;
 
-    adapter.set_callback_on_scan_found([&](SimpleBLE::Peripheral peripheral) {
-        if (!peripheral.is_connectable()) return;
-        std::string addr = peripheral.address();
+    adapter.set_callback_on_scan_found([&](SimpleBLE::Peripheral p) {
+        if (!p.is_connectable()) return;
+        auto addr = p.address();
         if (!addr.empty() && seen_addresses.insert(addr).second) {
-            std::cout << "Found device: " << peripheral.identifier()
-                << " [" << addr << "]" << std::endl;
-            scanned_peripherals.push_back(peripheral);
+            std::cout << "Found device: " << p.identifier()
+                      << " [" << addr << "]" << std::endl;
+            scanned.push_back(p);
         }
-        });
-    adapter.set_callback_on_scan_start([]() { std::cout << "Scan started." << std::endl; });
-    adapter.set_callback_on_scan_stop([]() { std::cout << "Scan stopped." << std::endl; });
+    });
+    adapter.set_callback_on_scan_start([](){ std::cout << "Scan started." << std::endl; });
+    adapter.set_callback_on_scan_stop([](){ std::cout << "Scan stopped." << std::endl; });
 
     adapter.scan_for(BLUETOOTH_SCANNING_TIMEOUT_SEC * 1000);
 
-    if (scanned_peripherals.empty()) {
+    if (scanned.empty()) {
         std::cerr << "No connectable peripherals discovered." << std::endl;
         return EXIT_FAILURE;
     }
 
-    std::vector<SimpleBLE::Peripheral> simionic_peripherals;
-    for (auto& p : scanned_peripherals) {
-        if (p.identifier() == SIMIONIC_G1000_IDENTIFIER) simionic_peripherals.push_back(p);
+    // Filter SHB1000 devices (all of them)
+    std::vector<SimpleBLE::Peripheral> targets;
+    for (auto& p : scanned) {
+        if (p.identifier() == SIMIONIC_G1000_IDENTIFIER) targets.push_back(p);
     }
 
-    if (simionic_peripherals.empty()) {
-        std::cerr << "No Simionic G1000 devices found." << std::endl;
+    if (targets.empty()) {
+        std::cerr << "No SHB1000 devices found." << std::endl;
         return EXIT_FAILURE;
     }
 
-    size_t chosen_index = 0;
-    if (simionic_peripherals.size() > 1) {
-        std::cout << "Simionic G1000 devices:" << std::endl;
-        for (size_t i = 0; i < simionic_peripherals.size(); ++i) {
-            std::cout << "[" << i << "] "
-                << simionic_peripherals[i].identifier()
-                << " [" << simionic_peripherals[i].address() << "]\n";
+    std::cout << "Connecting to " << targets.size() << " SHB1000 device(s)..." << std::endl;
+
+    std::vector<ConnectedDevice> connected;
+    connected.reserve(targets.size());
+
+    for (auto& p : targets) {
+        std::cout << "-> Connecting: " << p.identifier()
+                  << " [" << p.address() << "]" << std::endl;
+        try {
+            p.connect();
+        } catch (const std::exception& e) {
+            std::cerr << "   Connection failed: " << e.what() << " (skipping)" << std::endl;
+            continue;
         }
-        auto sel = get_user_input_int("Select device index", simionic_peripherals.size() - 1);
-        if (!sel) {
-            std::cerr << "Invalid selection." << std::endl;
-            return EXIT_FAILURE;
+
+        SimpleBLE::BluetoothUUID service_uuid;
+        SimpleBLE::BluetoothUUID char_uuid;
+        if (!find_characteristic(p, desired_char_lower, service_uuid, char_uuid)) {
+            std::cerr << "   Target characteristic not found on "
+                      << p.address() << " (skipping)" << std::endl;
+            try { p.disconnect(); } catch (...) {}
+            continue;
         }
-        chosen_index = *sel;
-    }
-    else {
-        std::cout << "One SHB1000 device found. Auto-selecting it." << std::endl;
-    }
 
-    auto peripheral = simionic_peripherals[chosen_index];
-    std::cout << "Connecting to " << peripheral.identifier()
-        << " [" << peripheral.address() << "]" << std::endl;
+        bool subscribed = false;
+        bool used_indicate = false;
 
-    try {
-        peripheral.connect();
-    }
-    catch (const std::exception& e) {
-        std::cerr << "Connection failed: " << e.what() << std::endl;
-        return EXIT_FAILURE;
-    }
+        try {
+            bool can_indicate = false;
+            bool can_notify   = false;
 
-    auto services = peripheral.services();
-
-    SimpleBLE::BluetoothUUID service_uuid;
-    SimpleBLE::BluetoothUUID characteristic_uuid;
-    bool characteristic_found = false;
-
-    try {
-        for (auto& service : services) {
-            for (auto& characteristic : service.characteristics()) {
-                if (to_lower(characteristic.uuid()) == desired_characteristic_uuid) {
-                    service_uuid = service.uuid();
-                    characteristic_uuid = characteristic.uuid();
-                    characteristic_found = true;
+            // Re-scan service characteristics to inspect properties
+            for (auto& service : p.services()) {
+                if (service.uuid() != service_uuid) continue;
+                for (auto& chr : service.characteristics()) {
+                    if (chr.uuid() != char_uuid) continue;
+                    can_indicate = chr.can_indicate();
+                    can_notify   = chr.can_notify();
                     break;
                 }
             }
-            if (characteristic_found) break;
-        }
-    }
-    catch (const std::exception& e) {
-        std::cerr << "Service discovery failed: " << e.what() << std::endl;
-        peripheral.disconnect();
-        return EXIT_FAILURE;
-    }
 
-    if (!characteristic_found) {
-        std::cerr << "Characteristic " << BLE_CHARACTERISTIC_UUID
-            << " not found on selected device." << std::endl;
-        peripheral.disconnect();
-        return EXIT_FAILURE;
-    }
-
-    bool subscribed = false;
-    bool used_indicate = false;
-
-    try {
-        bool can_indicate = false;
-        bool can_notify = false;
-        for (auto& service : services) {
-            if (service.uuid() != service_uuid) continue;
-            for (auto& c : service.characteristics()) {
-                if (c.uuid() != characteristic_uuid) continue;
-                can_indicate = c.can_indicate();
-                can_notify = c.can_notify();
-                break;
+            auto devTag = p.address();
+            if (can_indicate) {
+                p.indicate(service_uuid, char_uuid,
+                           [devTag](SimpleBLE::ByteArray bytes) {
+                               if (wasmPtr) wasmPtr->executeCalclatorCode(ccode.data());
+                               print_hex_bytes(bytes, devTag);
+                           });
+                subscribed = true;
+                used_indicate = true;
+            } else if (can_notify) {
+                p.notify(service_uuid, char_uuid,
+                         [devTag](SimpleBLE::ByteArray bytes) {
+                             if (wasmPtr) wasmPtr->executeCalclatorCode(ccode.data());
+                             print_hex_bytes(bytes, devTag);
+                         });
+                subscribed = true;
+            } else {
+                std::cerr << "   Char supports neither indicate nor notify on "
+                          << devTag << " (skipping)" << std::endl;
             }
+        } catch (const std::exception& e) {
+            std::cerr << "   Subscription failed: " << e.what() << " (disconnecting)" << std::endl;
+            try { p.disconnect(); } catch (...) {}
+            subscribed = false;
         }
 
-        if (can_indicate) {
-            peripheral.indicate(service_uuid, characteristic_uuid,
-                [&](SimpleBLE::ByteArray bytes) { on_receive_bytes(bytes); });
-            subscribed = true;
-            used_indicate = true;
-        }
-        else if (can_notify) {
-            peripheral.notify(service_uuid, characteristic_uuid,
-                [&](SimpleBLE::ByteArray bytes) { on_receive_bytes(bytes); });
-            subscribed = true;
-        }
-        else {
-            std::cerr << "Characteristic supports neither indicate nor notify." << std::endl;
+        if (subscribed) {
+            std::cout << "   " << (used_indicate ? "Indication" : "Notification")
+                      << " active on " << p.address() << std::endl;
+            connected.push_back({p, service_uuid, char_uuid, used_indicate});
         }
     }
-    catch (const std::exception& e) {
-        std::cerr << "Subscription failed: " << e.what() << std::endl;
-        peripheral.disconnect();
+
+    if (connected.empty()) {
+        std::cerr << "No devices successfully subscribed." << std::endl;
         return EXIT_FAILURE;
     }
 
-    if (!subscribed) {
-        peripheral.disconnect();
-        return EXIT_FAILURE;
-    }
-
-    std::cout << (used_indicate ? "Indication" : "Notification")
-        << " active on characteristic " << characteristic_uuid
-        << ". Press Enter to stop..." << std::endl;
-
+    std::cout << "Listening on " << connected.size()
+              << " device(s). Press Enter to stop..." << std::endl;
     if (std::cin.peek() == '\n') std::cin.get();
     std::string line;
     std::getline(std::cin, line);
 
-    try {
-        peripheral.unsubscribe(service_uuid, characteristic_uuid);
-    }
-    catch (const std::exception& e) {
-        std::cerr << "Unsubscribe failed: " << e.what() << std::endl;
+    // Unsubscribe & disconnect all
+    for (auto& cd : connected) {
+        try {
+            cd.peripheral.unsubscribe(cd.service_uuid, cd.characteristic_uuid);
+        } catch (...) {}
+        try {
+            cd.peripheral.disconnect();
+        } catch (...) {}
     }
 
-    peripheral.disconnect();
-    std::cout << "Disconnected. Exiting." << std::endl;
+    std::cout << "Disconnected all. Exiting." << std::endl;
     return EXIT_SUCCESS;
 }
