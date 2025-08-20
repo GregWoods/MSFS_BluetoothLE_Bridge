@@ -12,7 +12,8 @@
                 "CMAKE_CXX_STANDARD": "17",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
                 "SIMPLEBLE_BUILD_EXAMPLES": "OFF",
-                "SIMPLEBLE_BUILD_TESTS": "OFF"
+                "SIMPLEBLE_BUILD_TESTS": "OFF",
+                "SIMCONNECT_SDK_ROOT": "C:/MSFS 2024 SDK"
             }
         },
         {
@@ -37,8 +38,7 @@
 
     "buildPresets": [
         { "name": "debug",   "configurePreset": "debug" },
-        { "name": "release", "configurePreset": "release" },
-        { "name": "release-install", "configurePreset": "release", "targets": [ "install" ] }
+        { "name": "release", "configurePreset": "release" }
     ],
 
     "testPresets": [
