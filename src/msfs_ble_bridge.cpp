@@ -7,6 +7,7 @@
 #include <fstream>
 #include <cctype>
 #include <filesystem>
+#include <unordered_map>
 
 #include "simpleble/SimpleBLE.h"
 #include "WASMIF.h"
@@ -24,8 +25,15 @@ static WASMIF* wasmPtr = nullptr;
 // Staging buffer required by WASMIF (max length enforced by MAX_CALC_CODE_SIZE)
 static std::array<char, MAX_CALC_CODE_SIZE> ccode{};
 
-// Simple 256-entry lookup table mapping byte -> calculator code
-static std::array<std::string, 256> g_codeMap{};
+// Per-device 256-entry lookup table mapping byte -> calculator code
+struct DeviceConfig {
+    std::array<std::string, 256> codes{};
+    size_t assignedCount = 0;
+    size_t maxLen = 0;
+};
+
+// Registry of device configs keyed by canonical MAC (lowercase, colon-separated)
+static std::unordered_map<std::string, DeviceConfig> g_deviceMaps;
 
 class WASMIFGuard {
 public:
@@ -63,6 +71,30 @@ static bool iequals_ascii(const std::string& a, const char* b) {
         unsigned char ca = static_cast<unsigned char>(a[i]);
         unsigned char cb = static_cast<unsigned char>(b[i]);
         if (std::tolower(ca) != std::tolower(cb)) return false;
+    }
+    return true;
+}
+
+static bool is_hex_char(unsigned char c) {
+    return std::isxdigit(c) != 0;
+}
+
+// Convert input to canonical MAC "aa:bb:cc:dd:ee:ff" (lowercase).
+// Accepts formats like "AA:BB:CC:DD:EE:FF", "aa-bb-cc-dd-ee-ff", or "AABBCCDDEEFF".
+static bool canonicalize_mac(const std::string& in, std::string& out) {
+    // Strip non-hex chars
+    std::string hex;
+    hex.reserve(12);
+    for (unsigned char c : in) {
+        if (is_hex_char(c)) hex.push_back(static_cast<char>(std::tolower(c)));
+    }
+    if (hex.size() != 12) return false;
+    // Insert colons
+    out.clear();
+    out.reserve(17);
+    for (size_t i = 0; i < 12; ++i) {
+        out.push_back(hex[i]);
+        if (i % 2 == 1 && i != 11) out.push_back(':');
     }
     return true;
 }
@@ -108,7 +140,8 @@ static void load_code_map_from_file(const std::string& path) {
         return;
     }
 
-    size_t countAssigned = 0, maxLen = 0;
+    std::string currentSection; // canonical MAC section
+    size_t totalSections = 0;
     std::string line;
     size_t lineNum = 0;
 
@@ -116,8 +149,30 @@ static void load_code_map_from_file(const std::string& path) {
         ++lineNum;
         std::string raw = trim(line);
         if (raw.empty()) continue;
-        // Skip comments and section headers like [88:...]
-        if (raw.rfind("//", 0) == 0 || raw.rfind("#", 0) == 0 || raw.rfind(";", 0) == 0 || raw.front() == '[') continue;
+
+        // Skip comments
+        if (raw.rfind("//", 0) == 0 || raw.rfind("#", 0) == 0 || raw.rfind(";", 0) == 0) continue;
+
+        // Section header [ ... ]
+        if (raw.front() == '[' && raw.back() == ']') {
+            std::string sectInner = trim(raw.substr(1, raw.size() - 2));
+            std::string canon;
+            if (canonicalize_mac(sectInner, canon)) {
+                currentSection = canon;
+                // Ensure device exists
+                if (g_deviceMaps.find(currentSection) == g_deviceMaps.end()) {
+                    g_deviceMaps.emplace(currentSection, DeviceConfig{});
+                }
+                ++totalSections;
+            } else {
+                std::cerr << "Warning: invalid section header on line " << lineNum << ": " << line << "\n";
+                currentSection.clear();
+            }
+            continue;
+        }
+
+        // Ignore mapping lines outside any device section
+        if (currentSection.empty()) continue;
 
         uint8_t key{};
         std::string value;
@@ -135,17 +190,21 @@ static void load_code_map_from_file(const std::string& path) {
             value.resize(MAX_CALC_CODE_SIZE - 1);
         }
 
-        bool wasEmpty = g_codeMap[key].empty();
-        g_codeMap[key] = std::move(value); // may be empty for 'unassigned'
-
-        if (!g_codeMap[key].empty()) {
-            if (wasEmpty) ++countAssigned;
-            maxLen = std::max(maxLen, g_codeMap[key].size());
+        // Store into the current device's table
+        DeviceConfig& target = g_deviceMaps[currentSection];
+        const bool wasEmpty = target.codes[key].empty();
+        target.codes[key] = std::move(value);
+        if (!target.codes[key].empty()) {
+            if (wasEmpty) ++target.assignedCount;
+            target.maxLen = std::max(target.maxLen, target.codes[key].size());
         }
     }
 
-    std::cout << "Loaded " << countAssigned << " code mappings from " << path
-              << " (max length " << maxLen << ").\n";
+    std::cout << "Config load summary: " << totalSections << " device section(s).\n";
+    for (const auto& kv : g_deviceMaps) {
+        std::cout << " - [" << kv.first << "]: " << kv.second.assignedCount
+                  << " mapping(s), max length " << kv.second.maxLen << "\n";
+    }
 }
 
 // Resolve config path for the given filename:
@@ -201,6 +260,14 @@ static std::string parse_config_arg(int argc, char* argv[]) {
     return cfg;
 }
 
+// Attempt to canonicalize a device tag (devTag) into a MAC key
+static std::string devtag_to_mac_key(const std::string& devTag) {
+    std::string mac;
+    if (canonicalize_mac(devTag, mac)) return mac;
+    // If devTag is not directly a MAC, leave empty; caller can decide fallback behavior.
+    return {};
+}
+
 int main(int argc, char* argv[]) {
     // SimConnect / WASM init
     wasmPtr = WASMIF::GetInstance();
@@ -226,19 +293,47 @@ int main(int argc, char* argv[]) {
     }
 
     auto on_packet = [](const SimpleBLE::ByteArray& bytes, const std::string& devTag) {
+        // Resolve device key
+        const std::string macKey = devtag_to_mac_key(devTag);
+
+        // Select per-device config
+        const DeviceConfig* cfg = nullptr;
+        if (!macKey.empty()) {
+            auto it = g_deviceMaps.find(macKey);
+            if (it != g_deviceMaps.end()) cfg = &it->second;
+        }
+
         // Marker appended to console output if code is not sent to the sim
         const std::string sentNote = wasmPtr ? "" : " Not Sent";
 
-        for (uint8_t b : bytes) {
-            const std::string& code = g_codeMap[b];
-            // Log the received byte and the calculator code being sent (or not)
-            std::cout << "Device: " << devTag << " InputByte: 0x"
-                        << std::hex << std::uppercase << std::setw(2) << std::setfill('0')
-                        << static_cast<int>(b)
-                        << std::dec << std::nouppercase << std::setfill(' ')
-                        << " Output: " << code << sentNote << std::endl;
+        if (!cfg) {
+            // No mapping for this device; still log packet bytes
+            for (uint8_t b : bytes) {
+                std::cout << "[" << devTag << "] BYTE: 0x"
+                          << std::hex << std::uppercase << std::setw(2) << std::setfill('0')
+                          << static_cast<int>(b)
+                          << std::dec << std::nouppercase << std::setfill(' ')
+                          << " CALC: <no mapping>" << " Not Sent" << std::endl;
+            }
+            return;
+        }
 
-            send_calc_code_safely(code);
+        for (uint8_t b : bytes) {
+            const std::string& code = cfg->codes[b];
+            if (!code.empty()) {
+                std::cout << "[" << devTag << "] BYTE: 0x"
+                          << std::hex << std::uppercase << std::setw(2) << std::setfill('0')
+                          << static_cast<int>(b)
+                          << std::dec << std::nouppercase << std::setfill(' ')
+                          << " CALC: " << code << sentNote << std::endl;
+                send_calc_code_safely(code);
+            } else {
+                std::cout << "[" << devTag << "] BYTE: 0x"
+                          << std::hex << std::uppercase << std::setw(2) << std::setfill('0')
+                          << static_cast<int>(b)
+                          << std::dec << std::nouppercase << std::setfill(' ')
+                          << " CALC: <unassigned>" << std::endl;
+            }
         }
     };
 
