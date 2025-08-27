@@ -1,37 +1,17 @@
 #include <algorithm>
 #include <cctype>
-#include <iomanip>
+#include <functional>
 #include <iostream>
 #include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
-#include <thread>
-#include <chrono>
-#include <array>
+
 #include "simpleble/SimpleBLE.h"
-#include "WASMIF.h"
 
-constexpr const char* SIMIONIC_G1000_IDENTIFIER = "SHB1000";
-constexpr const char* BLE_CHARACTERISTIC_UUID = "f62a9f56-f29e-48a8-a317-47ee37a58999";
-constexpr int BLUETOOTH_SCANNING_TIMEOUT_SEC = 20;
+namespace {
 
-static_assert(sizeof(void*) == 8, "Must build 64-bit (x64).");
-
-static WASMIF* wasmPtr = nullptr;
-static std::array<char, MAX_CALC_CODE_SIZE> ccode{};
-
-class WASMIFGuard {
-public:
-    explicit WASMIFGuard(WASMIF* p) : p_(p) {}
-    ~WASMIFGuard() { if (p_) p_->end(); }
-    WASMIFGuard(const WASMIFGuard&) = delete;
-    WASMIFGuard& operator=(const WASMIFGuard&) = delete;
-private:
-    WASMIF* p_;
-};      
-
-static std::optional<SimpleBLE::Adapter> get_first_adapter() {
+std::optional<SimpleBLE::Adapter> get_first_adapter() {
     try {
         auto adapters = SimpleBLE::Adapter::get_adapters();
         if (adapters.empty()) return std::nullopt;
@@ -42,32 +22,16 @@ static std::optional<SimpleBLE::Adapter> get_first_adapter() {
     }
 }
 
-static std::string to_lower(std::string v) {
+std::string to_lower(std::string v) {
     std::transform(v.begin(), v.end(), v.begin(),
-                   [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return v;
 }
 
-static void print_hex_bytes(const SimpleBLE::ByteArray& data, const std::string& devTag) {
-    std::cout << "[" << devTag << "] (" << data.size() << " bytes): ";
-    for (unsigned char c : data) {
-        std::cout << std::hex << std::uppercase << std::setw(2) << std::setfill('0')
-                  << static_cast<int>(c) << " ";
-    }
-    std::cout << std::dec << std::nouppercase << std::endl;
-}
-
-struct ConnectedDevice {
-    SimpleBLE::Peripheral peripheral;
-    SimpleBLE::BluetoothUUID service_uuid;
-    SimpleBLE::BluetoothUUID characteristic_uuid;
-    bool used_indicate = false;
-};
-
-static bool find_characteristic(SimpleBLE::Peripheral& p,
-                                const std::string& desired_lower,
-                                SimpleBLE::BluetoothUUID& out_service,
-                                SimpleBLE::BluetoothUUID& out_char) {
+bool find_characteristic(SimpleBLE::Peripheral& p,
+                         const std::string& desired_lower,
+                         SimpleBLE::BluetoothUUID& out_service,
+                         SimpleBLE::BluetoothUUID& out_char) {
     try {
         for (auto& service : p.services()) {
             for (auto& chr : service.characteristics()) {
@@ -85,18 +49,14 @@ static bool find_characteristic(SimpleBLE::Peripheral& p,
     return false;
 }
 
-int main() {
-    // SimConnect / WASM init
-    wasmPtr = WASMIF::GetInstance();
-    WASMIFGuard guard(wasmPtr);
-    wasmPtr->setSimConfigConnection(SIMCONNECT_OPEN_CONFIGINDEX_LOCAL);
-    wasmPtr->start();
+} // namespace
 
-    // Prepare calculator code (replayed on each incoming BLE packet)
-    const char* calcCode = "(>H:AS1000_PFD_SOFTKEYS_2)";
-    strncpy_s(ccode.data(), ccode.size(), calcCode, _TRUNCATE);
-
-    const std::string desired_char_lower = to_lower(BLE_CHARACTERISTIC_UUID);
+// Shared session runner. Declaration is forward-declared in each main.
+int ble_run_session(const std::string& device_identifier,
+                    const std::string& characteristic_uuid,
+                    int scan_timeout_sec,
+                    const std::function<void(const SimpleBLE::ByteArray&, const std::string&)>& on_packet) {
+    const std::string desired_char_lower = to_lower(characteristic_uuid);
 
     auto adapter_opt = get_first_adapter();
     if (!adapter_opt) {
@@ -118,28 +78,39 @@ int main() {
             scanned.push_back(p);
         }
     });
-    adapter.set_callback_on_scan_start([](){ std::cout << "Scan started." << std::endl; });
-    adapter.set_callback_on_scan_stop([](){ std::cout << "Scan stopped." << std::endl; });
+    adapter.set_callback_on_scan_start([]() { std::cout << "Scan started." << std::endl; });
+    adapter.set_callback_on_scan_stop([]() { std::cout << "Scan stopped." << std::endl; });
 
-    adapter.scan_for(BLUETOOTH_SCANNING_TIMEOUT_SEC * 1000);
+    adapter.scan_for(scan_timeout_sec * 1000);
 
     if (scanned.empty()) {
         std::cerr << "No connectable peripherals discovered." << std::endl;
         return EXIT_FAILURE;
     }
 
-    // Filter SHB1000 devices (all of them)
+    // Filter by identifier if provided (non-empty)
     std::vector<SimpleBLE::Peripheral> targets;
-    for (auto& p : scanned) {
-        if (p.identifier() == SIMIONIC_G1000_IDENTIFIER) targets.push_back(p);
+    if (!device_identifier.empty()) {
+        for (auto& p : scanned) {
+            if (p.identifier() == device_identifier) targets.push_back(p);
+        }
+    } else {
+        targets = scanned;
     }
 
     if (targets.empty()) {
-        std::cerr << "No SHB1000 devices found." << std::endl;
+        std::cerr << "No matching devices found." << std::endl;
         return EXIT_FAILURE;
     }
 
-    std::cout << "Connecting to " << targets.size() << " SHB1000 device(s)..." << std::endl;
+    std::cout << "Connecting to " << targets.size() << " device(s)..." << std::endl;
+
+    struct ConnectedDevice {
+        SimpleBLE::Peripheral peripheral;
+        SimpleBLE::BluetoothUUID service_uuid;
+        SimpleBLE::BluetoothUUID characteristic_uuid;
+        bool used_indicate = false;
+    };
 
     std::vector<ConnectedDevice> connected;
     connected.reserve(targets.size());
@@ -165,12 +136,12 @@ int main() {
 
         bool subscribed = false;
         bool used_indicate = false;
-
+        
         try {
             bool can_indicate = false;
             bool can_notify   = false;
 
-            // Re-scan service characteristics to inspect properties
+            // Inspect characteristic properties
             for (auto& service : p.services()) {
                 if (service.uuid() != service_uuid) continue;
                 for (auto& chr : service.characteristics()) {
@@ -184,17 +155,15 @@ int main() {
             auto devTag = p.address();
             if (can_indicate) {
                 p.indicate(service_uuid, char_uuid,
-                           [devTag](SimpleBLE::ByteArray bytes) {
-                               if (wasmPtr) wasmPtr->executeCalclatorCode(ccode.data());
-                               print_hex_bytes(bytes, devTag);
+                           [on_packet, devTag](SimpleBLE::ByteArray bytes) {
+                               on_packet(bytes, devTag);
                            });
                 subscribed = true;
                 used_indicate = true;
             } else if (can_notify) {
                 p.notify(service_uuid, char_uuid,
-                         [devTag](SimpleBLE::ByteArray bytes) {
-                             if (wasmPtr) wasmPtr->executeCalclatorCode(ccode.data());
-                             print_hex_bytes(bytes, devTag);
+                         [on_packet, devTag](SimpleBLE::ByteArray bytes) {
+                             on_packet(bytes, devTag);
                          });
                 subscribed = true;
             } else {
