@@ -35,8 +35,8 @@ function(apply_common_settings target)
 endfunction()
 
 set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
-set(MSFS_BLE_BRIDGE_SRC "${SRC_DIR}/msfs_ble_bridge.cpp")
-set(BLE_SCANNER_SRC "${SRC_DIR}/ble_scanner.cpp")
+set(MSFS_BLE_BRIDGE_SRC "apps/msfs_ble_bridge_main.cpp")
+set(BLE_SCANNER_SRC "apps/ble_scanner_main.cpp")
 set(BLE_COMMON_SRC "${SRC_DIR}/ble_session.cpp")
 
 # msfs_ble_bridge target

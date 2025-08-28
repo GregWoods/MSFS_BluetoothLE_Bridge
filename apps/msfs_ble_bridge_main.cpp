@@ -236,6 +236,15 @@ static void send_calc_code_safely(const std::string& code) {
     wasmPtr->executeCalclatorCode(ccode.data());
 }
 
+// Helper: log "Device: [tag] Input: XX Output: <text><suffix>" with proper hex formatting
+static void log_device_input_output(const std::string& devTag, uint8_t byte, const std::string& output, const std::string& suffix) {
+    std::cout << "Device: [" << devTag << "] Input: "
+              << std::hex << std::uppercase << std::setw(2) << std::setfill('0')
+              << static_cast<int>(byte)
+              << std::dec << std::nouppercase << std::setfill(' ')
+              << " Output: " << output << " " << suffix << " " << std::endl;
+}
+
 // Shared session runner implemented in src/ble_session.cpp
 int ble_run_session(const std::string& device_identifier,
                     const std::string& characteristic_uuid,
@@ -303,17 +312,10 @@ int main(int argc, char* argv[]) {
             if (it != g_deviceMaps.end()) cfg = &it->second;
         }
 
-        // Marker appended to console output if code is not sent to the sim
-        const std::string sentNote = wasmPtr ? "" : " Not Sent";
-
         if (!cfg) {
-            // No mapping for this device; still log packet bytes
+            // No mapping for this device; still log input
             for (uint8_t b : bytes) {
-                std::cout << "[" << devTag << "] BYTE: 0x"
-                          << std::hex << std::uppercase << std::setw(2) << std::setfill('0')
-                          << static_cast<int>(b)
-                          << std::dec << std::nouppercase << std::setfill(' ')
-                          << " CALC: <no mapping>" << " Not Sent" << std::endl;
+                log_device_input_output(devTag, b, "<no mapping>", "");
             }
             return;
         }
@@ -321,11 +323,7 @@ int main(int argc, char* argv[]) {
         for (uint8_t b : bytes) {
             const std::string& code = cfg->codes[b];
             if (!code.empty()) {
-                std::cout << "[" << devTag << "] BYTE: 0x"
-                          << std::hex << std::uppercase << std::setw(2) << std::setfill('0')
-                          << static_cast<int>(b)
-                          << std::dec << std::nouppercase << std::setfill(' ')
-                          << " CALC: " << code << sentNote << std::endl;
+                log_device_input_output(devTag, b, code, wasmPtr ? "" : "No connection");
                 send_calc_code_safely(code);
             } else {
                 std::cout << "[" << devTag << "] BYTE: 0x"
