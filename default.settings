@@ -1,0 +1,273 @@
+#=====================================================
+# Greg's PFD UUID. Find yours using the ble_scanner
+[88:6b:0f:a5:5f:3d]
+#=====================================================
+
+
+
+
+
+
+
+#=====================================================
+# Greg's MFD UUID. Find yours using the ble_scanner
+[88:6b:0f:a4:dd:d5]
+#=====================================================
+
+# Note that some actions are G1000 specific, so may not work on the G3X or G3000,
+#   whilst others are more generic. It may be necessary to revise some of these
+#   to be more universally compatible.
+
+# using MSFS 2024 >B events where available. You can see the buttons being pressed in the sim
+
+# MFD Left Side
+# -------------
+
+# MFD NAV VOL Push
+#unsure if toggle is more appropriate: AS1000_NAV_ID_PUSH_MFD_TOGGLE
+4E = "1 (>B:AS1000_NAV_ID_PUSH_MFD_Set)"
+4F = "0 (>B:AS1000_NAV_ID_PUSH_MFD_Set)"
+
+# MFD NAV VOL
+#4D = "(>H:AS1000_MFD_VOL_1_DEC)"
+4D = "1 (>B:AS1000_NAV_VOLUME_MFD_Dec)"
+#4C = "(>H:AS1000_MFD_VOL_1_INC)"
+4C = "1 (>B:AS1000_NAV_VOLUME_MFD_Inc)"
+
+# MFD NAV Flip Flop
+4A = "(>B:AS1000_NAV_SWITCH_MFD_PUSH)"
+4B = unassigned
+
+# MFD NAV OUT
+53 = "1 (>B:AS1000_NAV_LARGE_MFD_Dec)"
+52 = "1 (>B:AS1000_NAV_LARGE_MFD_Inc)"
+
+# MFD NAV IN
+51 = "1 (>B:AS1000_NAV_SMALL_MFD_Dec)"
+52 = "1 (>B:AS1000_NAV_SMALL_MFD_Inc)"
+
+# MFD NAV Push
+54 = "(>B:AS1000_NAV_PUSH_MFD_PUSH)"
+55 = unassigned
+
+# MFD HDG Encdr
+45 = "1 (>B:AS1000_HEADING_MFD_Dec)"
+44 = "1 (>B:AS1000_HEADING_MFD_Inc)"
+# TODO: Investigate a fast turn rate option to inc/dec by 5 degrees
+
+# MFD HDG Push
+56 = "(>B:AS1000_HEADING_SYNC_MFD_PUSH)"
+57 = unassigned
+
+# MFG AP Btn
+5C = "(>B:AS1000_AUTOPILOT_AP_MFD_TOGGLE)"
+5D = unassigned
+
+# MFD FD Btn
+40 = "(>B:AS1000_AUTOPILOT_FD_MFD_TOGGLE)"
+41 = unassigned
+
+# MFD HDG Btn
+64 = "(>B:AS1000_AUTOPILOT_HEADING_MFD_TOGGLE)"
+65 = unassigned
+
+# MFD ALT Btn
+42 = "(>B:AS1000_AUTOPILOT_ALTITUDE_MFD_TOGGLE)"
+43 = unassigned
+
+# MFD NAV Btn
+62 = "(>B:AS1000_AUTOPILOT_NAVIGATION_MFD_TOGGLE)"
+63 = unassigned
+
+# MFD VNV Btn
+3C = "(>B:AS1000_AUTOPILOT_VERTICAL_NAVIGATION_MFD_TOGGLE)"
+3D = unassigned
+
+# MFD APR Btn
+60 = "(>B:AS1000_AUTOPILOT_APPROACH_MFD_TOGGLE)"
+61 = unassigned
+
+# MFD BC Btn
+3A = "(>B:AS1000_AUTOPILOT_BACKCOURSE_MFD_TOGGLE)"
+3B = unassigned
+
+# MFD VS btn
+5E = "(>B:AS1000_AUTOPILOT_VERTICALSPEED_MFD_TOGGLE)"
+5F = unassigned
+
+# MFD Nose Up Btn
+38 = "(>B:AS1000_AUTOPILOT_VERTICALSPEED_UP_MFD_PUSH)"
+39 = unassigned
+
+# MFD FLC Btn
+5A = "(>B:AS1000_AUTOPILOT_FLIGHTLEVELCHANGE_MFD_TOGGLE)"
+5B = unassigned
+
+# MDF Nose Dn Btn
+3E = "(>B:AS1000_AUTOPILOT_VERTICALSPEED_DOWN_MFD_PUSH)"
+3F = unassigned
+
+# MFD ALT OUT
+# TODO: fix hardware issue in MFD (PFD is ok)
+# outputs both 47 and 49 for DEC
+# outputs both 46 and 48 for INC
+49 = "1 (>B:AS1000_ALTITUDE_OUTER_MFD_Dec)"
+48 = "1 (>B:AS1000_ALTITUDE_OUTER_MFD_Inc)"
+
+# MFD ALT IN
+# TODO: fix hardware issue in MFD (PFD is ok)
+47 - "1 (>B:AS1000_ALTITUDE_INNER_MFD_Dec)"
+46 = "1 (>B:AS1000_ALTITUDE_INNER_MFD_Inc)"
+
+# MFD ALT Push
+# TODO: MFD push button is sticky. Fix the hardware.
+# May need to replace the dual encoder.Check it is the same type. Oscilliscope it!
+58 = "(>B:AS1000_AUTOPILOT_ALTITUDE_MFD_TOGGLE)"
+59 = unassigned
+
+
+# MFD Softkeys
+# ------------
+# Although activate on release is more accurate, activate on press is more visually responsive
+9C = "1 (>B:AS1000_SOFTKEY_1_MFD_PUSH)"
+9D = unassigned
+
+9E = "1 (>B:AS1000_SOFTKEY_2_MFD_PUSH)"
+9F = unassigned
+
+A0 = "1 (>B:AS1000_SOFTKEY_3_MFD_PUSH)"
+A1 = unassigned
+
+A2 = "1 (>B:AS1000_SOFTKEY_4_MFD_PUSH)"
+A3 = unassigned
+
+A4 = "1 (>B:AS1000_SOFTKEY_5_MFD_PUSH)"
+A5 = unassigned
+
+A6 = "1 (>B:AS1000_SOFTKEY_6_MFD_PUSH)"
+A7 = unassigned
+
+A8 = "1 (>B:AS1000_SOFTKEY_7_MFD_PUSH)"
+A9 = unassigned
+
+AA = "1 (>B:AS1000_SOFTKEY_8_MFD_PUSH)"
+AB = unassigned
+
+AC = "1 (>B:AS1000_SOFTKEY_9_MFD_PUSH)"
+AD = unassigned
+
+AE = "1 (>B:AS1000_SOFTKEY_10_MFD_PUSH)"
+AF = unassigned
+
+B0 = "1 (>B:AS1000_SOFTKEY_11_MFD_PUSH)"
+B1 = unassigned
+
+B2 = "1 (>B:AS1000_SOFTKEY_12_MFD_PUSH)"
+B3 = unassigned
+
+
+# MFD Right Side
+# --------------
+
+# MFD COM VOL
+25 = "1 (>B:AS1000_COM_VOLUME_MFD_Dec)"
+24 = "1 (>B:AS1000_COM_VOLUME_MFD_Inc)"
+
+# MFD COM VOL Push (Squelch)
+CE = "1 (>B:AS1000_COM_SQUELCH_PUSH_MFD_TOGGLE)"
+CF = unassigned
+
+# MFD COM Flip Flop
+# Long press sets radio to energency freq 121.5
+CA = "(E:SIMULATION TIME,second) (L:myTshort) < if{ (>B:AS1000_COM_SWITCH_MFD_PUSH) } els{ (L:AS1000_MFD_SELECTEDCOMINDEX) 1 == if{ 121500000 (>K:COM_RADIO_SET_HZ) } els{ 121500000 (>K:COM2_RADIO_SET_HZ) } } 0 (>L:myTshort)"
+CB = unassigned
+
+# MFD COM OUT
+6D = "1 (>B:AS1000_COM_LARGE_MFD_Dec)"
+6C = "1 (>B:AS1000_COM_LARGE_MFD_Inc)"
+
+# MFD COM IN
+6B = "1 (>B:AS1000_COM_SMALL_MFD_Dec)"
+6A = "1 (>B:AS1000_COM_SMALL_MFD_Inc)"
+
+# MFD COM Push
+6E = unassigned
+6F = "(>B:AS1000_COM_PUSH_PFD_PUSH)"
+
+# MFD Baro Encdr
+67 = "1 (>B:AS1000_BARO_MFD_Dec)"
+66 = "1 (>B:AS1000_BARO_MFD_Inc)"
+
+# MFD CRS Encdr
+69 = "1 (>B:AS1000_COURSE_MFD_Dec)"
+68 = "1 (>B:AS1000_COURSE_MFD_Inc)"
+
+# MFD CRS Push
+70 = "(>B:AS1000_COURSE_PUSH_MFD_PUSH)"
+71 = unassigned
+
+# MFD PAN Up
+C6 = "1 0 (>B:AS1000_RANGE_MFD_Set)"
+C7 = "0 0 (>B:AS1000_RANGE_MFD_Set)"
+
+# MFD PAN Down
+C8 = "-1 0 (>B:AS1000_RANGE_MFD_Set)"
+C9 = "0 0 (>B:AS1000_RANGE_MFD_Set)"
+
+# MFD PAN Left
+C2 = "0 -1 (>B:AS1000_RANGE_MFD_Set)"
+C3 = "0 0 (>B:AS1000_RANGE_MFD_Set)"
+
+# MFD PAN Right
+up/down, left right (up +1, down -1, left -1, right +1)
+C4 = "0 1 (>B:AS1000_RANGE_MFD_Set)"
+C5 = "0 0 (>B:AS1000_RANGE_MFD_Set)"
+
+# MFD Range Encdr
+C1 = "1 (>B:AS1000_RANGE_ZOOM_MFD_Dec)"
+C0 = "1 (>B:AS1000_RANGE_ZOOM_MFD_Inc)"
+
+# MFD Range Push
+20 = "1 (>B:AS1000_RANGE_PUSH_MFD_Set)"
+21 = unassigned
+
+# MFD Direct To Btn
+D2 = unassigned
+D3 = "(>B:AS1000_DIRECTTO_MFD_PUSH)"
+
+# MFD MENU Btn
+B8 = unassigned
+B9 = "1 (>B:AS1000_MENU_PUSH_MFD_PUSH)"
+
+# MFD FPL Btn
+D4 = unassigned
+D5 = "(>B:AS1000_FPL_PUSH_MFD_PUSH)"
+
+# MFD PROC Btn
+B6 = unassigned
+B7 = "(>B:AS1000_PROC_PUSH_MFD_PUSH)"
+
+# MFD CLR Btn
+# Long press is not possible in the sim currently
+D6 = "1 (>B:AS1000_CLR_MFD_PUSH)"
+D7 = unassigned
+
+# Reset map when long press for 2 seconds
+D6 = "(E:SIMULATION TIME, seconds) (>L:CLR_Press_Start)"
+D7 = "(E:SIMULATION TIME, seconds) (L:CLR_Press_Start) - 2 > if{ 0 0 (>B:AS1000_RANGE_MFD_Set) 1 (>B:AS1000_RANGE_MFD_ZOOM) } els{ 1 (>B:AS1000_CLR_MFD_Set) }"
+
+# MFD ENT Btn
+B4 = unassigned
+B5 = "(>B:AS1000_ENT_PUSH_MFD_PUSH)"
+
+# MFD FMS OUT
+29 = "1 (>B:AS1000_FMS_LOWER_MFD_Dec)"
+28 = "1 (>B:AS1000_FMS_LOWER_MFD_Inc)"
+
+# MFD FMS IN
+27 = "1 (>B:AS1000_FMS_UPPER_MFD_Dec)"
+26 = "1 (>B:AS1000_FMS_UPPER_MFD_Inc)"
+
+# MFD FMS Push
+BE = unassigned
+BF = "(>B:AS1000_FMS_UPPER_PUSH_MFD_PUSH)"
