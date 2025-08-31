@@ -327,11 +327,7 @@ int main(int argc, char* argv[]) {
                 log_device_input_output(devTag, b, code, wasmPtr ? "" : "No connection");
                 send_calc_code_safely(code);
             } else {
-                std::cout << "[" << devTag << "] BYTE: 0x"
-                          << std::hex << std::uppercase << std::setw(2) << std::setfill('0')
-                          << static_cast<int>(b)
-                          << std::dec << std::nouppercase << std::setfill(' ')
-                          << " CALC: <unassigned>" << std::endl;
+                log_device_input_output(devTag, b, "<unassigned>", "");
             }
         }
     };
