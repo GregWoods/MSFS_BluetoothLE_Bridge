@@ -246,13 +246,7 @@ static void log_device_input_output(const std::string& devTag, uint8_t byte, con
               << " Output: " << output << " " << suffix << " " << std::endl;
 }
 
-// Shared session runner implemented in src/ble_session.cpp
-int ble_run_session(const std::string& device_identifier,
-                    const std::string& characteristic_uuid,
-                    int scan_timeout_sec,
-                    const std::function<void(const SimpleBLE::ByteArray&, const std::string&)>& on_packet);
-
-// New continuous-scan API (implemented in src/ble_session.cpp)
+// Continuous scan until all target MACs are connected (implemented in src/ble_session.cpp)
 int ble_run_session_scan_until_all_addresses(
     const std::unordered_set<std::string>& addresses_lower,
     const std::string& characteristic_uuid,

@@ -213,7 +213,7 @@ int ble_run_session(const std::string& device_identifier,
 }
 
 
-// continuously scan until all target MACs are found and subscribed.
+// New: continuously scan until all target MACs are found and subscribed.
 int ble_run_session_scan_until_all_addresses(
     const std::unordered_set<std::string>& addresses_lower,
     const std::string& characteristic_uuid,
@@ -233,30 +233,33 @@ int ble_run_session_scan_until_all_addresses(
     }
     auto adapter = *adapter_opt;
 
-    struct TargetState {
-        bool discovered = false;
-        bool connected = false;
-        SimpleBLE::Peripheral peripheral;
-    };
-
-    std::unordered_map<std::string, TargetState> targets;
-    targets.reserve(addresses_lower.size());
-    for (const auto& mac : addresses_lower) targets.emplace(mac, TargetState{});
-
+    // Queue for discovered target peripherals; protect with a mutex (scanning callback thread)
     std::mutex qmtx;
     std::vector<SimpleBLE::Peripheral> discovered_queue;
+    std::unordered_set<std::string> pending; // macs currently queued for processing
+
+    struct ConnectedDevice {
+        SimpleBLE::Peripheral peripheral;
+        SimpleBLE::BluetoothUUID service_uuid;
+        SimpleBLE::BluetoothUUID characteristic_uuid;
+        bool used_indicate = false;
+    };
+    std::unordered_map<std::string, ConnectedDevice> connected; // key: mac lower
+    connected.reserve(addresses_lower.size());
 
     adapter.set_callback_on_scan_found([&](SimpleBLE::Peripheral p) {
         if (!p.is_connectable()) return;
         const std::string addr_lower = to_lower(p.address());
-        auto it = targets.find(addr_lower);
-        if (it == targets.end()) return; // not a target
-        // Record discovery and queue for connection attempt
+        // Only consider configured targets not yet connected
+        if (addresses_lower.count(addr_lower) == 0) return;
+        if (connected.find(addr_lower) != connected.end()) return;
+
         {
             std::lock_guard<std::mutex> lock(qmtx);
-            it->second.discovered = true;
-            it->second.peripheral = p;
-            discovered_queue.push_back(p);
+            // Avoid flooding the queue with duplicates for the same MAC
+            if (pending.insert(addr_lower).second) {
+                discovered_queue.push_back(p);
+            }
         }
         std::cout << "Found target: " << p.identifier() << " [" << p.address() << "]" << std::endl;
     });
@@ -272,16 +275,6 @@ int ble_run_session_scan_until_all_addresses(
         return EXIT_FAILURE;
     }
 
-    struct ConnectedDevice {
-        SimpleBLE::Peripheral peripheral;
-        SimpleBLE::BluetoothUUID service_uuid;
-        SimpleBLE::BluetoothUUID characteristic_uuid;
-        bool used_indicate = false;
-    };
-
-    std::unordered_map<std::string, ConnectedDevice> connected; // key: mac lower
-    connected.reserve(addresses_lower.size());
-
     // Process discoveries and connect until all are subscribed
     while (connected.size() < addresses_lower.size()) {
         std::vector<SimpleBLE::Peripheral> to_process;
@@ -292,6 +285,10 @@ int ble_run_session_scan_until_all_addresses(
 
         for (auto& p : to_process) {
             const std::string mac = to_lower(p.address());
+            {
+                std::lock_guard<std::mutex> lock(qmtx);
+                pending.erase(mac); // allow re-queue on future rediscovery if needed
+            }
             if (connected.find(mac) != connected.end()) continue;
 
             std::cout << "-> Connecting: " << p.identifier()
