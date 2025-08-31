@@ -12,11 +12,11 @@
 #include "simpleble/SimpleBLE.h"
 #include "WASMIF.h"
 
-// Command-line selectable config; defaults to "default.config" if not provided via --config
-constexpr const char* DEFAULT_CONFIG_FILENAME = "default.config";
+// Command-line selectable settings file; defaults to "default.settings" if not provided via --config
+constexpr const char* DEFAULT_CONFIG_FILENAME = "default.settings";
 constexpr const char* BLE_STRING_IDENTIFIER = "SHB1000";
 constexpr const char* BLE_CHARACTERISTIC_UUID = "f62a9f56-f29e-48a8-a317-47ee37a58999";
-constexpr int BLUETOOTH_SCANNING_TIMEOUT_SEC = 22;
+constexpr int BLUETOOTH_SCANNING_TIMEOUT_SEC = 27;
 
 static_assert(sizeof(void*) == 8, "Must build 64-bit (x64).");
 
