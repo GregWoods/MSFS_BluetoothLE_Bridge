@@ -8,6 +8,7 @@
 #include <cctype>
 #include <filesystem>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "simpleble/SimpleBLE.h"
 #include "WASMIF.h"
@@ -251,6 +252,12 @@ int ble_run_session(const std::string& device_identifier,
                     int scan_timeout_sec,
                     const std::function<void(const SimpleBLE::ByteArray&, const std::string&)>& on_packet);
 
+// New continuous-scan API (implemented in src/ble_session.cpp)
+int ble_run_session_scan_until_all_addresses(
+    const std::unordered_set<std::string>& addresses_lower,
+    const std::string& characteristic_uuid,
+    const std::function<void(const SimpleBLE::ByteArray&, const std::string&)>& on_packet);
+
 // Parse --config=<file> or --config <file>; return chosen filename (defaults to DEFAULT_CONFIG_FILENAME)
 static std::string parse_config_arg(int argc, char* argv[]) {
     std::string cfg = DEFAULT_CONFIG_FILENAME;
@@ -335,10 +342,15 @@ int main(int argc, char* argv[]) {
         }
     };
 
-    return ble_run_session(
-        BLE_STRING_IDENTIFIER,
+    // Build the target MAC set (keys are already canonicalized lower-case in g_deviceMaps)
+    std::unordered_set<std::string> target_macs;
+    target_macs.reserve(g_deviceMaps.size());
+    for (const auto& kv : g_deviceMaps) target_macs.insert(kv.first);
+
+    // Keep scanning until all configured devices are found and connected
+    return ble_run_session_scan_until_all_addresses(
+        target_macs,
         BLE_CHARACTERISTIC_UUID,
-        BLUETOOTH_SCANNING_TIMEOUT_SEC,
         on_packet
     );
 }

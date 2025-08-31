@@ -6,6 +6,10 @@
 #include <string>
 #include <unordered_set>
 #include <vector>
+#include <unordered_map>
+#include <chrono>
+#include <thread>
+#include <mutex>
 
 #include "simpleble/SimpleBLE.h"
 
@@ -202,6 +206,179 @@ int ble_run_session(const std::string& device_identifier,
         try {
             cd.peripheral.disconnect();
         } catch (...) {}
+    }
+
+    std::cout << "Disconnected all. Exiting." << std::endl;
+    return EXIT_SUCCESS;
+}
+
+
+// continuously scan until all target MACs are found and subscribed.
+int ble_run_session_scan_until_all_addresses(
+    const std::unordered_set<std::string>& addresses_lower,
+    const std::string& characteristic_uuid,
+    const std::function<void(const SimpleBLE::ByteArray&, const std::string&)>& on_packet) {
+
+    if (addresses_lower.empty()) {
+        std::cerr << "No target MAC addresses provided." << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    const std::string desired_char_lower = to_lower(characteristic_uuid);
+
+    auto adapter_opt = get_first_adapter();
+    if (!adapter_opt) {
+        std::cerr << "No Bluetooth adapter found." << std::endl;
+        return EXIT_FAILURE;
+    }
+    auto adapter = *adapter_opt;
+
+    struct TargetState {
+        bool discovered = false;
+        bool connected = false;
+        SimpleBLE::Peripheral peripheral;
+    };
+
+    std::unordered_map<std::string, TargetState> targets;
+    targets.reserve(addresses_lower.size());
+    for (const auto& mac : addresses_lower) targets.emplace(mac, TargetState{});
+
+    std::mutex qmtx;
+    std::vector<SimpleBLE::Peripheral> discovered_queue;
+
+    adapter.set_callback_on_scan_found([&](SimpleBLE::Peripheral p) {
+        if (!p.is_connectable()) return;
+        const std::string addr_lower = to_lower(p.address());
+        auto it = targets.find(addr_lower);
+        if (it == targets.end()) return; // not a target
+        // Record discovery and queue for connection attempt
+        {
+            std::lock_guard<std::mutex> lock(qmtx);
+            it->second.discovered = true;
+            it->second.peripheral = p;
+            discovered_queue.push_back(p);
+        }
+        std::cout << "Found target: " << p.identifier() << " [" << p.address() << "]" << std::endl;
+    });
+
+    adapter.set_callback_on_scan_start([]() { std::cout << "Scan started (continuous)..." << std::endl; });
+    adapter.set_callback_on_scan_stop([]() { std::cout << "Scan stopped." << std::endl; });
+
+    // Start continuous scan (no timeout)
+    try {
+        adapter.scan_start();
+    } catch (const std::exception& e) {
+        std::cerr << "Scan start failed: " << e.what() << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    struct ConnectedDevice {
+        SimpleBLE::Peripheral peripheral;
+        SimpleBLE::BluetoothUUID service_uuid;
+        SimpleBLE::BluetoothUUID characteristic_uuid;
+        bool used_indicate = false;
+    };
+
+    std::unordered_map<std::string, ConnectedDevice> connected; // key: mac lower
+    connected.reserve(addresses_lower.size());
+
+    // Process discoveries and connect until all are subscribed
+    while (connected.size() < addresses_lower.size()) {
+        std::vector<SimpleBLE::Peripheral> to_process;
+        {
+            std::lock_guard<std::mutex> lock(qmtx);
+            to_process.swap(discovered_queue);
+        }
+
+        for (auto& p : to_process) {
+            const std::string mac = to_lower(p.address());
+            if (connected.find(mac) != connected.end()) continue;
+
+            std::cout << "-> Connecting: " << p.identifier()
+                      << " [" << p.address() << "]" << std::endl;
+
+            try {
+                p.connect();
+            } catch (const std::exception& e) {
+                std::cerr << "   Connection failed: " << e.what() << " (will retry when rediscovered)" << std::endl;
+                continue;
+            }
+
+            SimpleBLE::BluetoothUUID service_uuid;
+            SimpleBLE::BluetoothUUID char_uuid;
+            if (!find_characteristic(p, desired_char_lower, service_uuid, char_uuid)) {
+                std::cerr << "   Target characteristic not found on "
+                          << p.address() << " (disconnecting; will retry when rediscovered)" << std::endl;
+                try { p.disconnect(); } catch (...) {}
+                continue;
+            }
+
+            bool subscribed = false;
+            bool used_indicate = false;
+
+            try {
+                bool can_indicate = false;
+                bool can_notify   = false;
+
+                for (auto& service : p.services()) {
+                    if (service.uuid() != service_uuid) continue;
+                    for (auto& chr : service.characteristics()) {
+                        if (chr.uuid() != char_uuid) continue;
+                        can_indicate = chr.can_indicate();
+                        can_notify   = chr.can_notify();
+                        break;
+                    }
+                }
+
+                auto devTag = p.address();
+                if (can_indicate) {
+                    p.indicate(service_uuid, char_uuid,
+                               [on_packet, devTag](SimpleBLE::ByteArray bytes) {
+                                   on_packet(bytes, devTag);
+                               });
+                    subscribed = true;
+                    used_indicate = true;
+                } else if (can_notify) {
+                    p.notify(service_uuid, char_uuid,
+                             [on_packet, devTag](SimpleBLE::ByteArray bytes) {
+                                 on_packet(bytes, devTag);
+                             });
+                    subscribed = true;
+                } else {
+                    std::cerr << "   Char supports neither indicate nor notify on "
+                              << devTag << " (disconnecting; will retry)" << std::endl;
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "   Subscription failed: " << e.what() << " (disconnecting; will retry)" << std::endl;
+            }
+
+            if (subscribed) {
+                std::cout << "   " << (used_indicate ? "Indication" : "Notification")
+                          << " active on " << p.address() << std::endl;
+                connected.emplace(mac, ConnectedDevice{p, service_uuid, char_uuid, used_indicate});
+            } else {
+                try { p.disconnect(); } catch (...) {}
+            }
+        }
+
+        // Small idle delay; scanning continues in background
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+
+    // All connected; stop scanning now
+    try { adapter.scan_stop(); } catch (...) {}
+
+    std::cout << "Listening on " << connected.size()
+              << " device(s). Press Enter to stop..." << std::endl;
+    if (std::cin.peek() == '\n') std::cin.get();
+    std::string line;
+    std::getline(std::cin, line);
+
+    // Cleanup
+    for (auto& kv : connected) {
+        auto& cd = kv.second;
+        try { cd.peripheral.unsubscribe(cd.service_uuid, cd.characteristic_uuid); } catch (...) {}
+        try { cd.peripheral.disconnect(); } catch (...) {}
     }
 
     std::cout << "Disconnected all. Exiting." << std::endl;

@@ -116,7 +116,7 @@
 
 # MFD ALT IN
 # TODO: fix hardware issue in MFD (PFD is ok)
-47 - "1 (>B:AS1000_ALTITUDE_INNER_MFD_Dec)"
+47 = "1 (>B:AS1000_ALTITUDE_INNER_MFD_Dec)"
 46 = "1 (>B:AS1000_ALTITUDE_INNER_MFD_Inc)"
 
 # MFD ALT Push
@@ -219,7 +219,7 @@ C2 = "0 -1 (>B:AS1000_RANGE_MFD_Set)"
 C3 = "0 0 (>B:AS1000_RANGE_MFD_Set)"
 
 # MFD PAN Right
-up/down, left right (up +1, down -1, left -1, right +1)
+# up/down, left right (up +1, down -1, left -1, right +1)
 C4 = "0 1 (>B:AS1000_RANGE_MFD_Set)"
 C5 = "0 0 (>B:AS1000_RANGE_MFD_Set)"
 
