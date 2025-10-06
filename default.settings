@@ -1,14 +1,15 @@
-#=====================================================
-# Greg's PFD UUID. Find yours using the ble_scanner
+#==========================================================
+# Greg's PFD UUID. Find yours using the ble_scanner utility
 [88:6b:0f:a5:5f:3d]
-#=====================================================
+#==========================================================
 
 
 # Note that some actions are G1000 specific, so may not work on the G3X or G3000,
 #   whilst others are more generic. It may be necessary to revise some of these
 #   to be more universally compatible.
 
-# using MSFS 2024 BVars where available. Unlike HVars, you can see the buttons being pressed in the sim.
+# using MSFS 2024 BVars where available. Unlike HVars, you can see the buttons 
+#   being pressed in the sim.
 
 
 # PFD Left Side
@@ -20,9 +21,7 @@
 4F = "0 (>B:AS1000_NAV_ID_PUSH_PFD_Set)"
 
 # PFD NAV VOL
-#4D = "(>H:AS1000_PFD_VOL_1_DEC)"
 4D = "1 (>B:AS1000_NAV_VOLUME_PFD_Dec)"
-#4C = "(>H:AS1000_PFD_VOL_1_INC)"
 4C = "1 (>B:AS1000_NAV_VOLUME_PFD_Inc)"
 
 # PFD NAV Flip Flop
@@ -35,7 +34,7 @@
 
 # PFD NAV IN
 51 = "1 (>B:AS1000_NAV_SMALL_PFD_Dec)"
-52 = "1 (>B:AS1000_NAV_SMALL_PFD_Inc)"
+50 = "1 (>B:AS1000_NAV_SMALL_PFD_Inc)"
 
 # PFD NAV Push
 54 = "(>B:AS1000_NAV_PUSH_PFD_PUSH)"
@@ -303,7 +302,7 @@ BF = "(>B:AS1000_FMS_UPPER_PUSH_PFD_PUSH)"
 
 # MFD NAV IN
 51 = "1 (>B:AS1000_NAV_SMALL_MFD_Dec)"
-52 = "1 (>B:AS1000_NAV_SMALL_MFD_Inc)"
+50 = "1 (>B:AS1000_NAV_SMALL_MFD_Inc)"
 
 # MFD NAV Push
 54 = "(>B:AS1000_NAV_PUSH_MFD_PUSH)"
@@ -539,87 +538,87 @@ BF = "(>B:AS1000_FMS_UPPER_PUSH_MFD_PUSH)"
 
 # COM1 Mic Btn
 2A = "(>B:AS1000_COM_1_MIC_MIDCOM_PUSH)"
-2B = 
+2B = unassigned
 
 # COM1 Btn
 32 = "(>B:AS1000_COM_1_MIDCOM_PUSH)"
-33 = 
+33 = unassigned
 
 # COM2 Mic Btn
 2C = "(>B:AS1000_COM_2_MIC_MIDCOM_PUSH)"
-2D =
+2D = unassigned
 
 # COM 2 Btn
 34 = "(>B:AS1000_COM_2_MIDCOM_PUSH)"
-35 = 
+35 = unassigned
 
 # COM3 Mic Btn
 2E = "(>B:AS1000_COM_3_MIDCOM_PUSH")
-2F =
+2F = unassigned
 
 # COM3 Btn
 36 = "(>B:AS1000_COM_3_MIC_MIDCOM_PUSH")
-37 = 
+37 = unassigned
 
 # COM 1/2 Btn
 30 = "(>B:AS1000_COM_SWAP_MIDCOM_PUSH)"
-31 = 
+31 = unassigned
 
 # TEL Btn (Not Used)
-72 = 
-73 =
+72 = unassigned
+73 = unassigned
 
 # PA Btn (Not Used)
-74 = 
-75 = 
+74 = unassigned
+75 = unassigned
 
 # SPKR Btn
 76 = "(>B:AS1000_SPEAKER_MIDCOM_PUSH)"
-77 = 
+77 = unassigned
 
 # MKR MUTE Btn
 78 = "(>B:AS1000_MARKERMUTE_MIDCOM_PUSH)"
-79 = 
+79 = unassigned
 
 # HI SENS Btn
 7A = "(>B:AS1000_MARKERSENSITIVITYHIGH_MIDCOM_PUSH)"
-7B = 
+7B = unassigned
 
 # DME Btn
 7C = "(>B:AS1000_DME_MIDCOM_PUSH)"
-7D = 
+7D = unassigned
 
 # NAV1 Btn
 82 = "(>B:AS1000_NAV_1_MIDCOM_PUSH)"
-83 = 
+83 = unassigned
 
 # ADF Btn
 7E = "(>B:AS1000_ADF_MIDCOM_PUSH)"
-7F = 
+7F = unassigned
 
 # NAV2 Btn
 84 = "(>B:AS1000_NAV_2_MIDCOM_PUSH)"
-85 = 
+85 = unassigned
 
 # AUX Btn
 80 = "(>B:AS1000_AUX_MIDCOM_PUSH)"
-81 = 
+81 = unassigned
 
 # MAN SQ Btn
 86 = "(>B:AS1000_MAN_SQ_MIDCOM_PUSH)"
-87 = 
+87 = unassigned
 
 # PLAY Btn
 88 = "(>B:AS1000_PLAY_MIDCOM_PUSH)"
-89 = 
+89 = unassigned
 
 # PILOT Btn
 8A = "(>B:AS1000_ISOLATEPILOT_MIDCOM_PUSH)"
-8B = 
+8B = unassigned
 
 # COPLT Btn
 8C = "(>B:AS1000_ISOLATECOPILOT_MIDCOM_PUSH)"
-8D = 
+8D = unassigned
 
 # PILOT VOL (Inner) Dec, Inc
 93 = "1 (>B:AS1000_AUDIOPANEL_PASS_COPILOT_MIDCOM_Dec)"
@@ -630,8 +629,8 @@ BF = "(>B:AS1000_FMS_UPPER_PUSH_MFD_PUSH)"
 94 = "1 (>B:AS1000_AUDIOPANELVOLUME_MIDCOM_Inc)"
 
 # PLT/COPLT Vol PUSH
-90 = 
-91 = 
+90 = unassigned
+91 = unassigned
 
 # DISPLAY BACKUP (latching btn)
 8E = "1 (>B:AS1000_DISPLAYBACKUP_MIDCOM_Set)"
