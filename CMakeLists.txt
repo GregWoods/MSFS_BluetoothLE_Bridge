@@ -39,11 +39,13 @@ set(MSFS_BLE_BRIDGE_SRC "apps/msfs_ble_bridge_main.cpp")
 set(BLE_SCANNER_SRC "apps/ble_scanner_main.cpp")
 set(BLE_COMMON_SRC "${SRC_DIR}/ble_session.cpp")
 
+
 # msfs_ble_bridge target
 add_executable(msfs_ble_bridge
     "${MSFS_BLE_BRIDGE_SRC}"
     "${BLE_COMMON_SRC}"
 )
+target_include_directories(msfs_ble_bridge PRIVATE ${SRC_DIR})
 target_link_libraries(msfs_ble_bridge PRIVATE
     simpleble::simpleble
     FSUIPC_WAPI::FSUIPC_WAPI
@@ -51,11 +53,14 @@ target_link_libraries(msfs_ble_bridge PRIVATE
 apply_common_settings(msfs_ble_bridge)
 install(TARGETS msfs_ble_bridge RUNTIME DESTINATION .)
 
+
+
 # ble_scanner target
 add_executable(ble_scanner
     "${BLE_SCANNER_SRC}"
     "${BLE_COMMON_SRC}"
 )
+target_include_directories(ble_scanner      PRIVATE ${SRC_DIR})
 target_link_libraries(ble_scanner PRIVATE
     simpleble::simpleble
 )
