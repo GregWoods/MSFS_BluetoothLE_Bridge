@@ -15,6 +15,12 @@
 #include <mutex>
 #include <thread>
 #include <chrono>
+#include <atomic>
+
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
 
 #include "simpleble/SimpleBLE.h"
 #include "simpleble/Config.h"
@@ -251,6 +257,23 @@ static void log_device_input_output(const std::string& devTag, uint8_t byte, con
               << " Output: " << output << " " << suffix << " " << std::endl;
 }
 
+// Shared connected-device record
+struct ConnectedDevice {
+    SimpleBLE::Peripheral peripheral;
+    SimpleBLE::BluetoothUUID service_uuid;
+    SimpleBLE::BluetoothUUID characteristic_uuid;
+    bool used_indicate = false;
+};
+
+// Runtime context for shutdown across normal path and console-close handler
+struct BleRuntime {
+    std::mutex m;
+    std::atomic_bool shuttingDown{false};
+    std::optional<SimpleBLE::Adapter> adapter;
+    std::unordered_map<std::string, ConnectedDevice> connected; // mac -> device
+};
+static BleRuntime g_ble;
+
 // Local helpers for BLE session logic
 static std::optional<SimpleBLE::Adapter> get_first_adapter() {
     try {
@@ -301,11 +324,56 @@ static void safe_unsubscribe_and_disconnect(SimpleBLE::Peripheral& p,
                                             const SimpleBLE::BluetoothUUID& service_uuid,
                                             const SimpleBLE::BluetoothUUID& characteristic_uuid) {
     try { p.unsubscribe(service_uuid, characteristic_uuid); } catch (...) {}
-    // Give CCCD writes time to flush before disconnect
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100)); // let CCCD write flush
     try { p.disconnect(); } catch (...) {}
-    // Small settle time for the OS/stack to fully tear down the link
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    std::this_thread::sleep_for(std::chrono::milliseconds(300)); // settle time
+}
+
+static void graceful_shutdown() {
+    bool expected = false;
+    if (!g_ble.shuttingDown.compare_exchange_strong(expected, true)) {
+        return; // already running
+    }
+
+    std::optional<SimpleBLE::Adapter> localAdapter;
+    std::unordered_map<std::string, ConnectedDevice> localConnected;
+
+    {
+        std::lock_guard<std::mutex> lk(g_ble.m);
+        localAdapter = g_ble.adapter;
+        localConnected.swap(g_ble.connected); // take ownership of current set
+        g_ble.adapter.reset();
+    }
+
+    for (auto& kv : localConnected) {
+        auto& cd = kv.second;
+        safe_unsubscribe_and_disconnect(cd.peripheral, cd.service_uuid, cd.characteristic_uuid);
+    }
+
+    if (localAdapter) {
+        clear_adapter_callbacks(localAdapter.value());
+    }
+
+    // Attempt to end WASMIF session as well
+    if (wasmPtr) {
+        try { wasmPtr->end(); } catch (...) {}
+    }
+}
+
+// Console control handler: handle close, Ctrl+C, shutdown
+static BOOL WINAPI ConsoleCtrlHandler(DWORD type) {
+    switch (type) {
+        case CTRL_C_EVENT:
+        case CTRL_BREAK_EVENT:
+        case CTRL_CLOSE_EVENT:
+        case CTRL_LOGOFF_EVENT:
+        case CTRL_SHUTDOWN_EVENT:
+            graceful_shutdown();
+            Sleep(200); // brief pause to help OS tear down links
+            return TRUE;
+        default:
+            return FALSE;
+    }
 }
 
 // Inline implementation: continuously scan until all target MACs are found, then connect/subscribe all.
@@ -327,6 +395,11 @@ int ble_run_session_scan_until_all_addresses(
         return EXIT_FAILURE;
     }
     auto adapter = *adapter_opt;
+
+    {
+        std::lock_guard<std::mutex> lk(g_ble.m);
+        g_ble.adapter = adapter;
+    }
 
     // Phase 1: Discovery only (no connections/subscriptions yet)
     std::mutex mtx;
@@ -356,6 +429,7 @@ int ble_run_session_scan_until_all_addresses(
         adapter.scan_start();
     } catch (const std::exception& e) {
         std::cerr << "Scan start failed: " << e.what() << std::endl;
+        graceful_shutdown();
         return EXIT_FAILURE;
     }
 
@@ -369,23 +443,11 @@ int ble_run_session_scan_until_all_addresses(
 
     try { adapter.scan_stop(); } catch (...) {}
 
-    struct ConnectedDevice {
-        SimpleBLE::Peripheral peripheral;
-        SimpleBLE::BluetoothUUID service_uuid;
-        SimpleBLE::BluetoothUUID characteristic_uuid;
-        bool used_indicate = false;
-    };
-    std::unordered_map<std::string, ConnectedDevice> connected;
-    connected.reserve(addresses_lower.size());
-
     for (const auto& mac : addresses_lower) {
         auto it = discovered.find(mac);
         if (it == discovered.end()) {
             std::cerr << "Internal error: target " << mac << " missing from discovery set." << std::endl;
-            for (auto& kv : connected) {
-                try { kv.second.peripheral.unsubscribe(kv.second.service_uuid, kv.second.characteristic_uuid); } catch (...) {}
-                try { kv.second.peripheral.disconnect(); } catch (...) {}
-            }
+            graceful_shutdown();
             return EXIT_FAILURE;
         }
 
@@ -397,10 +459,7 @@ int ble_run_session_scan_until_all_addresses(
             p.connect();
         } catch (const std::exception& e) {
             std::cerr << "   Connection failed: " << e.what() << std::endl;
-            for (auto& [mac2, cd] : connected) {
-                try { cd.peripheral.unsubscribe(cd.service_uuid, cd.characteristic_uuid); } catch (...) {}
-                try { cd.peripheral.disconnect(); } catch (...) {}
-            }
+            graceful_shutdown();
             return EXIT_FAILURE;
         }
 
@@ -409,10 +468,7 @@ int ble_run_session_scan_until_all_addresses(
         if (!find_characteristic(p, desired_char_lower, service_uuid, char_uuid)) {
             std::cerr << "   Target characteristic not found on " << p.address() << std::endl;
             try { p.disconnect(); } catch (...) {}
-            for (auto& [mac2, cd] : connected) {
-                try { cd.peripheral.unsubscribe(cd.service_uuid, cd.characteristic_uuid); } catch (...) {}
-                try { cd.peripheral.disconnect(); } catch (...) {}
-            }
+            graceful_shutdown();
             return EXIT_FAILURE;
         }
 
@@ -455,34 +511,28 @@ int ble_run_session_scan_until_all_addresses(
 
         if (!subscribed) {
             try { p.disconnect(); } catch (...) {}
-            for (auto& kv : connected) {
-                try { kv.second.peripheral.unsubscribe(kv.second.service_uuid, kv.second.characteristic_uuid); } catch (...) {}
-                try { kv.second.peripheral.disconnect(); } catch (...) {}
-            }
+            graceful_shutdown();
             return EXIT_FAILURE;
         }
 
         std::cout << "   " << (used_indicate ? "Indication" : "Notification")
                   << " active on " << p.address()
-                  << " (" << (connected.size() + 1) << "/" << addresses_lower.size() << ")"
                   << std::endl;
 
-        connected.emplace(mac, ConnectedDevice{p, service_uuid, char_uuid, used_indicate});
+        {
+            std::lock_guard<std::mutex> lk(g_ble.m);
+            g_ble.connected.emplace(mac, ConnectedDevice{p, service_uuid, char_uuid, used_indicate});
+        }
     }
 
-    std::cout << "All targets connected. Listening on " << connected.size()
+    std::cout << "All targets connected. Listening on "
+              << addresses_lower.size()
               << " device(s). Press Enter to stop..." << std::endl;
     if (std::cin.peek() == '\n') std::cin.get();
     std::string line;
     std::getline(std::cin, line);
 
-    // Graceful teardown: unsubscribe, disconnect, clear callbacks, small settle time.
-    for (auto& kv : connected) {
-        auto& cd = kv.second;
-        safe_unsubscribe_and_disconnect(cd.peripheral, cd.service_uuid, cd.characteristic_uuid);
-    }
-    clear_adapter_callbacks(adapter);
-
+    graceful_shutdown();
     std::cout << "Disconnected all. Exiting." << std::endl;
     return EXIT_SUCCESS;
 }
@@ -514,6 +564,9 @@ static std::string devtag_to_mac_key(const std::string& devTag) {
 }
 
 int main(int argc, char* argv[]) {
+    // Ensure teardown runs on console close / Ctrl+C
+    SetConsoleCtrlHandler(ConsoleCtrlHandler, TRUE);
+
     // WinRT teardown robustness between runs
     SimpleBLE::Config::WinRT::experimental_use_own_mta_apartment = true;
     SimpleBLE::Config::WinRT::experimental_reinitialize_winrt_apartment_on_main_thread = true;
