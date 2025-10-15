@@ -17,6 +17,7 @@
 #include <chrono>
 
 #include "simpleble/SimpleBLE.h"
+#include "simpleble/Config.h"
 #include "WASMIF.h"
 
 // Command-line selectable settings file; defaults to "default.settings" if not provided via --config
@@ -289,6 +290,24 @@ static bool find_characteristic(SimpleBLE::Peripheral& p,
     return false;
 }
 
+// Extra teardown helpers to ensure clean disconnects on WinRT
+static void clear_adapter_callbacks(SimpleBLE::Adapter& adapter) {
+    adapter.set_callback_on_scan_found({});
+    adapter.set_callback_on_scan_start({});
+    adapter.set_callback_on_scan_stop({});
+}
+
+static void safe_unsubscribe_and_disconnect(SimpleBLE::Peripheral& p,
+                                            const SimpleBLE::BluetoothUUID& service_uuid,
+                                            const SimpleBLE::BluetoothUUID& characteristic_uuid) {
+    try { p.unsubscribe(service_uuid, characteristic_uuid); } catch (...) {}
+    // Give CCCD writes time to flush before disconnect
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    try { p.disconnect(); } catch (...) {}
+    // Small settle time for the OS/stack to fully tear down the link
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+}
+
 // Inline implementation: continuously scan until all target MACs are found, then connect/subscribe all.
 int ble_run_session_scan_until_all_addresses(
     const std::unordered_set<std::string>& addresses_lower,
@@ -457,11 +476,12 @@ int ble_run_session_scan_until_all_addresses(
     std::string line;
     std::getline(std::cin, line);
 
+    // Graceful teardown: unsubscribe, disconnect, clear callbacks, small settle time.
     for (auto& kv : connected) {
         auto& cd = kv.second;
-        try { cd.peripheral.unsubscribe(cd.service_uuid, cd.characteristic_uuid); } catch (...) {}
-        try { cd.peripheral.disconnect(); } catch (...) {}
+        safe_unsubscribe_and_disconnect(cd.peripheral, cd.service_uuid, cd.characteristic_uuid);
     }
+    clear_adapter_callbacks(adapter);
 
     std::cout << "Disconnected all. Exiting." << std::endl;
     return EXIT_SUCCESS;
@@ -494,6 +514,10 @@ static std::string devtag_to_mac_key(const std::string& devTag) {
 }
 
 int main(int argc, char* argv[]) {
+    // WinRT teardown robustness between runs
+    SimpleBLE::Config::WinRT::experimental_use_own_mta_apartment = true;
+    SimpleBLE::Config::WinRT::experimental_reinitialize_winrt_apartment_on_main_thread = true;
+
     // SimConnect / WASM init
     wasmPtr = WASMIF::GetInstance();
     WASMIFGuard guard(wasmPtr);
