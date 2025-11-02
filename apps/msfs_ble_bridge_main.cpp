@@ -26,8 +26,8 @@
 #include "simpleble/Config.h"
 #include "WASMIF.h"
 
-// Command-line selectable settings file; defaults to "default.settings" if not provided via --config
-constexpr const char* DEFAULT_CONFIG_FILENAME = "default.settings";
+// Command-line selectable settings file; defaults to "default.bleconfig" if not provided via --config
+constexpr const char* DEFAULT_CONFIG_FILENAME = "default.bleconfig";
 constexpr const char* BLE_CHARACTERISTIC_UUID = "f62a9f56-f29e-48a8-a317-47ee37a58999";
 
 static_assert(sizeof(void*) == 8, "Must build 64-bit (x64).");
